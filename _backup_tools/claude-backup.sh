@@ -170,7 +170,7 @@ if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
             # rsync to NAS (share mount + subdirectory)
             NAS_DEST="${NAS_MOUNT_POINT}/${NAS_SUBDIR:-}/$(date '+%Y-%m-%d')"
             mkdir -p "$NAS_DEST"
-            if rsync -a --delete \
+            if rsync -a --no-owner --no-group --no-perms --delete \
                 --exclude='.git/' \
                 "$BACKUP_REPO/" "$NAS_DEST/" 2>>"$LOGFILE"; then
                 NAS_STATUS="OK"
