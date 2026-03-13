@@ -184,4 +184,4 @@ ls ~/Library/Logs/claude-backup/
 
 ---
 
-*Created by: Your Name Here*
+*Created by: DT74 — Daren Threadingham*
