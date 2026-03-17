@@ -7,20 +7,26 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/backup.conf"
 
 LOG_DIR="${LOG_DIR:-$HOME/Library/Logs/claude-backup}"
-NOTIFY_EMAIL="${NOTIFY_EMAIL:-you@gmail.com}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL:-darent74@gmail.com}"
 
-# ── Find latest log ───────────────────────────────────────────────────
-LATEST_LOG=$(ls -t "$LOG_DIR"/backup_*.log 2>/dev/null | head -1)
+# ── Find log to report on ────────────────────────────────────────────
+# Prefer $1 argument (passed by backup script after completion).
+# Fall back to latest log file (for manual/standalone runs).
+LATEST_LOG="${1:-}"
+if [[ -z "$LATEST_LOG" || ! -f "$LATEST_LOG" ]]; then
+    LATEST_LOG=$(ls -t "$LOG_DIR"/backup_*.log 2>/dev/null | head -1)
+fi
 
-if [[ -z "$LATEST_LOG" ]]; then
+if [[ -z "$LATEST_LOG" || ! -f "$LATEST_LOG" ]]; then
     echo "No backup logs found in $LOG_DIR"
     exit 1
 fi
 
-# Warn if the latest log is not from today (stale report)
-TODAY=$(date '+%Y-%m-%d')
-if [[ "$LATEST_LOG" != *"$TODAY"* ]]; then
-    echo "WARNING: Latest log is not from today — backup may not have run"
+# Guard: if the log has no SUMMARY block yet, the backup is still running
+if ! grep -q "^──── END ────" "$LATEST_LOG" 2>/dev/null; then
+    echo "Log file is incomplete (backup still running?) — skipping notification"
+    echo "Log: $LATEST_LOG"
+    exit 1
 fi
 
 echo "Parsing: $LATEST_LOG"
@@ -38,6 +44,7 @@ NAS_STATUS=$(parse_field "NAS_STATUS")
 NAS_ENABLED=$(parse_field "NAS_ENABLED")
 CONV_CACHE=$(parse_field "CONV_CACHE")
 REPO_SIZE=$(parse_field "REPO_SIZE")
+DURATION=$(parse_field "DURATION")
 BACKUP_EXIT=$(parse_field "EXIT_CODE")
 
 # ── Determine overall status ─────────────────────────────────────────
@@ -63,6 +70,7 @@ Claude Code Backup Report
 ==========================
 Timestamp:    $TIMESTAMP
 Status:       $STATUS_WORD
+Duration:     ${DURATION:-unknown}
 
 Components
 ----------

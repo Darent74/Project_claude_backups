@@ -247,7 +247,7 @@
 <body>
 
 <h1>Claude Code Backup System — <span>Installation Guide</span></h1>
-<p class="subtitle">Automated daily backup of ~/.claude to GitHub and NAS with email notifications</p>
+<p class="subtitle">Automated daily backup of ~/.claude to GitHub and optionally to a NAS file share, with email notifications</p>
 
 <!-- Table of Contents -->
 <div class="toc">
@@ -260,9 +260,11 @@
         <li><a href="#verify">Verification</a></li>
         <li><a href="#usage">Usage</a></li>
         <li><a href="#excludes">What Gets Excluded</a></li>
+        <li><a href="#restore">Restoration</a></li>
         <li><a href="#structure">File Structure</a></li>
         <li><a href="#security">Security</a></li>
         <li><a href="#customize">Customization</a></li>
+        <li><a href="#logs">Logs</a></li>
         <li><a href="#troubleshoot">Troubleshooting</a></li>
     </ol>
 </div>
@@ -283,6 +285,7 @@
         <tr><td>Plans &amp; tasks</td><td>Active plans and task lists</td></tr>
     </tbody>
 </table>
+<p><strong>Excluded automatically:</strong> caches, telemetry, lock files, IDE state, temporary downloads — things that regenerate on their own.</p>
 
 <!-- How It Works -->
 <h2 id="how">How It Works</h2>
@@ -299,9 +302,11 @@
 <div class="card">
     <ul>
         <li><strong>Daily at 2:00 AM</strong> — backup script runs via macOS LaunchAgent</li>
-        <li><strong>Daily at 7:30 AM</strong> — notification script emails a status report</li>
+        <li><strong>Email notification</strong> is sent inline after backup completes — no separate timer, no risk of reporting on an incomplete run</li>
+        <li><strong>Duration tracking</strong> — every backup records how long it took</li>
         <li>Git history provides <strong>point-in-time restore</strong> capability</li>
         <li>Each step is independent — Git failure doesn't block NAS, and vice versa</li>
+        <li>Works without a logged-in user — no GUI/Finder dependency</li>
     </ul>
 </div>
 
@@ -332,30 +337,38 @@
     <p><span class="step-number">2</span> <strong>Configure <code>backup.conf</code></strong> <span class="badge badge-required">Required</span></p>
     <pre><code><span class="cmd">nano</span> ~/Projects/claude_backup/_backup_tools/backup.conf</code></pre>
     <p>Update these values to match your environment:</p>
-    <pre><code><span class="comment"># ── Source & Destination ──────────────────────────────────</span>
+    <pre><code><span class="comment"># ── Source &amp; Destination ──────────────────────────────────</span>
 BACKUP_SOURCE=<span class="path">"$HOME/.claude"</span>
 BACKUP_REPO=<span class="path">"$HOME/Projects/claude_backup"</span>       <span class="comment"># ← where you cloned</span>
+LOG_DIR=<span class="path">"$HOME/Library/Logs/claude-backup"</span>
 
 <span class="comment"># ── NAS Settings ─────────────────────────────────────────</span>
 NAS_BACKUP_ENABLED=<span class="placeholder">true</span>                           <span class="comment"># ← false if no NAS</span>
-NAS_SHARE=<span class="placeholder">"//YOUR-NAS-IP/YOUR-SHARE"</span>              <span class="comment"># ← your SMB share</span>
+NAS_SHARE=<span class="placeholder">"//YOUR-NAS-IP/YOUR-SHARE-NAME"</span>         <span class="comment"># ← your SMB share</span>
+NAS_MOUNT_BASE=<span class="path">"$HOME/mounts/claude-backup"</span>       <span class="comment"># ← user-owned mount point (no sudo needed)</span>
 NAS_SUBDIR=<span class="placeholder">"claude_code_backup"</span>                   <span class="comment"># ← subfolder</span>
+NAS_KEYCHAIN_SERVICE=<span class="placeholder">"claude-backup-nas"</span>
 NAS_KEYCHAIN_ACCOUNT=<span class="placeholder">"your-nas-username"</span>         <span class="comment"># ← NAS user</span>
+NAS_CONNECT_TIMEOUT=<span class="placeholder">10</span>                            <span class="comment"># ← seconds before NAS is deemed offline</span>
+NAS_MOUNT_TIMEOUT=<span class="placeholder">30</span>                              <span class="comment"># ← seconds before mount is deemed hung</span>
+NAS_RETENTION=<span class="placeholder">7</span>                                   <span class="comment"># ← keep this many successful backups on NAS</span>
 
 <span class="comment"># ── Email Notification ───────────────────────────────────</span>
 NOTIFY_EMAIL=<span class="placeholder">"you@gmail.com"</span>                      <span class="comment"># ← your email</span>
+GMAIL_KEYCHAIN_SERVICE=<span class="placeholder">"claude-backup-gmail"</span>
 GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>           <span class="comment"># ← your email</span></code></pre>
     <p class="info">If you don't have a NAS, just set <code>NAS_BACKUP_ENABLED=false</code> — everything else works without it.</p>
 </div>
 
 <div class="step">
-    <p><span class="step-number">3</span> <strong>Update LaunchAgent Plists</strong> <span class="badge badge-required">Required</span></p>
-    <p>The plist files contain hardcoded paths. Update them to match your username:</p>
+    <p><span class="step-number">3</span> <strong>Update the LaunchAgent Plist</strong> <span class="badge badge-required">Required</span></p>
+    <p>The plist file contains hardcoded paths. Update it to match your username:</p>
     <pre><code><span class="cmd">cd</span> ~/Projects/claude_backup/_backup_tools
 
-<span class="comment"># Replace paths in both plists</span>
-<span class="cmd">sed</span> <span class="flag">-i ''</span> <span class="path">"s|/Users/youruser|$HOME|g"</span> com.claude-backup.plist
-<span class="cmd">sed</span> <span class="flag">-i ''</span> <span class="path">"s|/Users/youruser|$HOME|g"</span> com.claude-backup-notify.plist</code></pre>
+<span class="comment"># Replace the username in the plist</span>
+<span class="cmd">sed</span> <span class="flag">-i ''</span> <span class="path">"s|/Users/youruser|$HOME|g"</span> com.claude-backup.plist</code></pre>
+    <p>Also create the user-owned NAS mount directory:</p>
+    <pre><code><span class="cmd">mkdir</span> <span class="flag">-p</span> ~/mounts/claude-backup</code></pre>
     <p>Verify the paths look correct:</p>
     <pre><code><span class="cmd">grep</span> <span class="flag">-A1</span> <span class="path">"ProgramArguments\|StandardOutPath"</span> com.claude-backup.plist</code></pre>
 </div>
@@ -373,44 +386,43 @@ GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>         
 </div>
 
 <div class="step">
-    <p><span class="step-number">5</span> <strong>Create a Gmail App Password</strong> <span class="badge badge-optional">Optional</span></p>
-    <p>Required only if you want email notifications. Gmail needs an App Password when 2FA is enabled:</p>
-    <ol>
-        <li>Go to <a href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></li>
-        <li>Select app → <strong>Other</strong> → enter "claude-backup"</li>
-        <li>Click <strong>Generate</strong></li>
-        <li>Copy the 16-character password — the setup script will prompt for this</li>
-    </ol>
-</div>
-
-<div class="step">
-    <p><span class="step-number">6</span> <strong>Run the Interactive Setup</strong></p>
+    <p><span class="step-number">5</span> <strong>Run the Interactive Setup</strong></p>
     <pre><code><span class="cmd">bash</span> ~/Projects/claude_backup/_backup_tools/setup.sh</code></pre>
     <p>The setup script will:</p>
     <ol>
-        <li>Install <code>msmtp</code> via Homebrew</li>
-        <li>Initialize the git repo and verify the remote</li>
-        <li>Prompt for your NAS password → stores in macOS Keychain</li>
-        <li>Prompt for your Gmail App Password → stores in Keychain</li>
+        <li>Install <code>msmtp</code> (email client) via Homebrew</li>
+        <li>Initialize the git repo and set the remote</li>
+        <li>Prompt for your <strong>NAS password</strong> (stored in macOS Keychain — never in plaintext)</li>
+        <li>Prompt for your <strong>Gmail App Password</strong> (see below)</li>
         <li>Configure msmtp for email notifications</li>
         <li>Create the log directory</li>
-        <li>Symlink and load the LaunchAgent schedules</li>
+        <li>Install and load the LaunchAgent schedules</li>
         <li>Run an initial test backup</li>
     </ol>
 </div>
 
+<div class="step">
+    <p><span class="step-number">6</span> <strong>Create a Gmail App Password</strong> <span class="badge badge-optional">Optional</span></p>
+    <p>Gmail requires an App Password when 2-factor authentication is enabled:</p>
+    <ol>
+        <li>Go to <a href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></li>
+        <li>Sign in to your Google account</li>
+        <li>Click <strong>Select app</strong> → choose <strong>Other</strong> → enter "claude-backup"</li>
+        <li>Click <strong>Generate</strong></li>
+        <li>Copy the 16-character password — the setup script will prompt for this</li>
+    </ol>
+    <p class="info">If you don't use Gmail, you can modify <code>_backup_tools/.msmtprc</code> after setup to use any SMTP provider (Outlook, Fastmail, etc.).</p>
+</div>
+
 <!-- Verification -->
 <h2 id="verify">Verification</h2>
-<pre><code><span class="comment"># Check LaunchAgents are registered</span>
-<span class="cmd">launchctl list</span> | <span class="cmd">grep</span> claude-backup
+<pre><code><span class="comment"># Run the validation suite (checks everything: mount, keychain, email, git, tools)</span>
+~/Projects/claude_backup/_backup_tools/<span class="cmd">validate-backup.sh</span>
 
-<span class="comment"># Run a manual backup</span>
+<span class="comment"># Run a manual backup (includes email notification at the end)</span>
 ~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup.sh</span>
 
-<span class="comment"># Send a test notification email</span>
-~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup-notify.sh</span>
-
-<span class="comment"># Check your email inbox for the backup report</span></code></pre>
+<span class="comment"># Check your inbox for the report email</span></code></pre>
 
 <!-- Usage -->
 <h2 id="usage">Usage</h2>
@@ -418,27 +430,30 @@ GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>         
 <h3>Automatic (Default)</h3>
 <div class="card">
     <ul>
-        <li><strong>2:00 AM daily</strong> — full backup (rsync → git push → NAS sync)</li>
-        <li><strong>7:30 AM daily</strong> — email notification with backup status</li>
+        <li><strong>2:00 AM daily</strong> — full backup (rsync + git push + NAS sync + email notification)</li>
+        <li>Email is sent <strong>inline</strong> after completion — no separate timer, guaranteed to have complete results and duration</li>
     </ul>
 </div>
 
 <h3>Manual / Ad-Hoc</h3>
-<pre><code><span class="comment"># Full backup</span>
+<pre><code><span class="comment"># Full backup (includes email notification at the end)</span>
 ~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup.sh</span>
 
-<span class="comment"># GitHub only (skip NAS)</span>
+<span class="comment"># Backup without NAS (GitHub only)</span>
 <span class="flag">NAS_BACKUP_ENABLED=false</span> ~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup.sh</span>
 
-<span class="comment"># Skip conversation cache (smaller, faster)</span>
+<span class="comment"># Backup without conversation cache (smaller, faster)</span>
 <span class="flag">INCLUDE_CONVERSATION_CACHE=false</span> ~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup.sh</span>
 
-<span class="comment"># Send notification email now</span>
+<span class="comment"># Run the validation suite</span>
+~/Projects/claude_backup/_backup_tools/<span class="cmd">validate-backup.sh</span>
+
+<span class="comment"># Re-send notification for the latest backup</span>
 ~/Projects/claude_backup/_backup_tools/<span class="cmd">claude-backup-notify.sh</span></code></pre>
 
 <!-- Excludes -->
 <h2 id="excludes">What Gets Excluded</h2>
-<p>These are automatically excluded (they regenerate or aren't useful):</p>
+<p>These are automatically excluded from backups (they regenerate or aren't useful):</p>
 <table>
     <thead><tr><th>Excluded</th><th>Reason</th></tr></thead>
     <tbody>
@@ -448,10 +463,11 @@ GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>         
         <tr><td><code>paste-cache/</code>, <code>downloads/</code></td><td>Temporary content</td></tr>
         <tr><td><code>backups/</code></td><td>Claude Code's own internal backups</td></tr>
         <tr><td><code>*.lock</code></td><td>Lock files</td></tr>
+        <tr><td><code>.DS_Store</code></td><td>macOS metadata</td></tr>
     </tbody>
 </table>
 
-<p>When <code>INCLUDE_CONVERSATION_CACHE=false</code>, also excluded:</p>
+<p>When <code>INCLUDE_CONVERSATION_CACHE=false</code>, these are also excluded:</p>
 <table>
     <thead><tr><th>Excluded</th><th>Reason</th></tr></thead>
     <tbody>
@@ -462,26 +478,42 @@ GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>         
     </tbody>
 </table>
 
+<!-- Restoration -->
+<h2 id="restore">Restoration</h2>
+<p>See <code>RESTORE.md</code> (or <code>RESTORE.html</code> for the styled version) for full restoration procedures including:</p>
+<ul>
+    <li>Quick full restore (3 commands)</li>
+    <li>Selective restore (specific skills, agents, or files)</li>
+    <li>Point-in-time restore from Git history</li>
+    <li>Restore from NAS when GitHub is unavailable</li>
+</ul>
+
 <!-- File Structure -->
 <h2 id="structure">File Structure</h2>
 <div class="file-tree"><span class="dir">~/Projects/claude_backup/</span>
 ├── <span class="dir">_backup_tools/</span>                    <span class="desc">← all backup infrastructure</span>
 │   ├── <span class="file">backup.conf</span>                   <span class="desc">← configuration (edit this)</span>
 │   ├── <span class="file">claude-backup.sh</span>              <span class="desc">← main backup script</span>
-│   ├── <span class="file">claude-backup-notify.sh</span>       <span class="desc">← email notification script</span>
+│   ├── <span class="file">claude-backup-notify.sh</span>       <span class="desc">← email notification (called by backup script)</span>
+│   ├── <span class="file">validate-backup.sh</span>            <span class="desc">← pre-flight validation (38 checks)</span>
 │   ├── <span class="file">setup.sh</span>                      <span class="desc">← one-time interactive setup</span>
-│   ├── <span class="file">com.claude-backup.plist</span>  <span class="desc">← LaunchAgent (daily 2 AM)</span>
-│   ├── <span class="file">com.claude-backup-notify.plist</span>
-│   ├── <span class="file">INSTALL.md</span> / <span class="file">INSTALL.html</span>    <span class="desc">← this guide</span>
-│   └── <span class="file">RESTORE.md</span> / <span class="file">RESTORE.html</span>    <span class="desc">← restoration guide</span>
+│   ├── <span class="file">com.claude-backup.plist</span>       <span class="desc">← LaunchAgent (daily 2:00 AM)</span>
+│   ├── <span class="file">CHANGELOG.md</span>                  <span class="desc">← detailed change history</span>
+│   ├── <span class="file">CHANGELOG.html</span>                <span class="desc">← styled HTML changelog</span>
+│   ├── <span class="file">INSTALL.md</span>                    <span class="desc">← this file</span>
+│   ├── <span class="file">INSTALL.html</span>                  <span class="desc">← styled HTML version</span>
+│   ├── <span class="file">RESTORE.md</span>                    <span class="desc">← restoration guide</span>
+│   └── <span class="file">RESTORE.html</span>                  <span class="desc">← styled restoration guide</span>
 ├── <span class="file">.gitignore</span>
 ├── <span class="file">CLAUDE.md</span>                         <span class="desc">← project documentation</span>
+├── <span class="file">notes.md</span>                          <span class="desc">← original planning notes</span>
 │
 │   <span class="desc">... mirrored ~/.claude content ...</span>
 ├── <span class="dir">skills/</span>
 ├── <span class="dir">agents/</span>
 ├── <span class="dir">plugins/</span>
 ├── <span class="dir">hooks/</span>
+├── <span class="dir">commands/</span>
 ├── <span class="file">settings.json</span>
 └── ...</div>
 
@@ -489,12 +521,15 @@ GMAIL_KEYCHAIN_ACCOUNT=<span class="placeholder">"you@gmail.com"</span>         
 <h2 id="security">Security</h2>
 <div class="card">
     <ul>
-        <li><strong>No plaintext passwords</strong> — NAS and Gmail credentials stored in macOS Keychain, retrieved at runtime</li>
-        <li><strong>SMB passwords URL-encoded</strong> — special characters handled correctly (a common macOS gotcha)</li>
+        <li><strong>No plaintext passwords</strong> — NAS and Gmail credentials stored in macOS Keychain and retrieved at runtime</li>
+        <li><strong>SMB passwords URL-encoded</strong> — special characters in passwords are handled correctly</li>
         <li><strong>Credentials cleared from memory</strong> — variables <code>unset</code> immediately after use</li>
-        <li><strong>Dedicated msmtp config</strong> — stored in <code>_backup_tools/.msmtprc</code> (gitignored), won't conflict with system config</li>
+        <li><strong>Dedicated msmtp config</strong> — stored in <code>_backup_tools/.msmtprc</code> (gitignored), won't conflict with your system config</li>
         <li><strong>Lockfile protection</strong> — prevents concurrent backup runs from corrupting state</li>
-        <li><strong>Pre-commit size check</strong> — files over 90 MB flagged before committing (GitHub limit is 100 MB)</li>
+        <li><strong>EXIT trap cleanup</strong> — unmounts NAS and removes lockfile even on crash or kill</li>
+        <li><strong>NAS connectivity pre-check</strong> — <code>nc -z</code> test with timeout before attempting mount</li>
+        <li><strong>Mount timeout</strong> — <code>mount_smbfs</code> wrapped with <code>timeout</code> to prevent indefinite hangs</li>
+        <li><strong>Pre-commit size check</strong> — files over 90 MB are flagged before committing (GitHub's limit is 100 MB)</li>
     </ul>
 </div>
 
@@ -528,6 +563,18 @@ passwordeval   security find-generic-password -s claude-backup-email -a <span cl
 
 account default : <span class="placeholder">outlook</span></code></pre>
 
+<h3>Add/Remove rsync Excludes</h3>
+<p>Edit the <code>RSYNC_EXCLUDES</code> array in <code>claude-backup.sh</code> to include or exclude additional directories.</p>
+
+<!-- Logs -->
+<h2 id="logs">Logs</h2>
+<p>Backup logs are stored in <code>~/Library/Logs/claude-backup/</code> and automatically pruned after 30 days.</p>
+<pre><code><span class="comment"># View the latest log</span>
+<span class="cmd">ls</span> <span class="flag">-t</span> ~/Library/Logs/claude-backup/backup_*.log | <span class="cmd">head</span> -1 | <span class="cmd">xargs cat</span>
+
+<span class="comment"># View all available logs</span>
+<span class="cmd">ls</span> ~/Library/Logs/claude-backup/</code></pre>
+
 <!-- Troubleshooting -->
 <h2 id="troubleshoot">Troubleshooting</h2>
 <table>
@@ -536,12 +583,12 @@ account default : <span class="placeholder">outlook</span></code></pre>
         <tr>
             <td>NAS mount "No route to host" but server pings</td>
             <td>Password has special characters</td>
-            <td>Script URL-encodes automatically; verify password in Keychain is correct</td>
+            <td>Script URL-encodes automatically; verify password: <code>security find-generic-password -s claude-backup-nas -w</code></td>
         </tr>
         <tr>
             <td>NAS mount "Permission denied" on mkdir</td>
-            <td>Mount point under <code>/Volumes/</code></td>
-            <td>Use <code>/tmp/</code> mount point (default in config)</td>
+            <td>Mount point not user-owned</td>
+            <td>Use <code>~/mounts/claude-backup</code> (default in config) — must be owned by your user</td>
         </tr>
         <tr>
             <td>NAS subfolder access denied</td>
@@ -556,35 +603,27 @@ account default : <span class="placeholder">outlook</span></code></pre>
         <tr>
             <td>Schedule change not working</td>
             <td>Plist not reloaded</td>
-            <td><code>launchctl unload</code> then <code>launchctl load</code></td>
+            <td><code>launchctl unload</code> then <code>launchctl load</code> the plist</td>
         </tr>
         <tr>
             <td><code>git</code> / <code>msmtp</code> not found at 2 AM</td>
             <td>PATH not set in LaunchAgent</td>
-            <td>Verify <code>EnvironmentVariables</code> in plist includes <code>/opt/homebrew/bin</code></td>
+            <td>Check <code>EnvironmentVariables</code> in plist includes <code>/opt/homebrew/bin</code></td>
         </tr>
         <tr>
             <td>Backup script hangs</td>
-            <td>Stale lockfile from a crash</td>
+            <td>Previous run didn't clean up</td>
             <td>Delete <code>~/Library/Logs/claude-backup/.claude-backup.lock</code></td>
         </tr>
     </tbody>
 </table>
 
-<h3>Viewing Logs</h3>
-<pre><code><span class="comment"># Latest backup log</span>
-<span class="cmd">ls</span> <span class="flag">-t</span> ~/Library/Logs/claude-backup/backup_*.log | <span class="cmd">head</span> -1 | <span class="cmd">xargs cat</span>
-
-<span class="comment"># All available logs (last 30 days retained)</span>
-<span class="cmd">ls</span> ~/Library/Logs/claude-backup/</code></pre>
-
 <p style="margin-top: 2rem; text-align: center;">
-    <strong>Restoration procedures:</strong> See <code>RESTORE.md</code> or <code>RESTORE.html</code> for full restore guide.
+    <strong>License:</strong> MIT — use it, fork it, adapt it to your needs.
 </p>
 
 <footer>
-    Created by: <strong>DT74 — Daren Threadingham</strong><br>
-    License: MIT — use it, fork it, adapt it to your needs.
+    Created by: <strong>DT74 — Daren Threadingham</strong>
 </footer>
 
 </body>

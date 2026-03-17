@@ -15,12 +15,17 @@ LOG_DIR="${LOG_DIR:-$HOME/Library/Logs/claude-backup}"
 NAS_BACKUP_ENABLED="${NAS_BACKUP_ENABLED:-true}"
 INCLUDE_CONVERSATION_CACHE="${INCLUDE_CONVERSATION_CACHE:-true}"
 MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-90}"
+NAS_MOUNT_BASE="${NAS_MOUNT_BASE:-$HOME/mounts/claude-backup}"
+NAS_CONNECT_TIMEOUT="${NAS_CONNECT_TIMEOUT:-10}"
+NAS_MOUNT_TIMEOUT="${NAS_MOUNT_TIMEOUT:-30}"
+NAS_RETENTION="${NAS_RETENTION:-7}"
 
 # ── Setup ─────────────────────────────────────────────────────────────
 mkdir -p "$LOG_DIR"
 TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
 LOGFILE="$LOG_DIR/backup_${TIMESTAMP}.log"
 EXIT_CODE=0
+BACKUP_START=$SECONDS
 
 # ── Lockfile (prevent concurrent runs) ────────────────────────────────
 LOCKFILE="$LOG_DIR/.claude-backup.lock"
@@ -34,7 +39,16 @@ if [[ -f "$LOCKFILE" ]]; then
     rm -f "$LOCKFILE"
 fi
 echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
+
+# Clean up lockfile and any stale NAS mount on exit
+cleanup() {
+    rm -f "$LOCKFILE"
+    # Unmount NAS if still mounted at our mount point
+    if mount | grep -q "$NAS_MOUNT_BASE" 2>/dev/null; then
+        umount "$NAS_MOUNT_BASE" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOGFILE"; }
 err() { log "ERROR: $*"; }
@@ -137,64 +151,158 @@ NAS_STATUS="DISABLED"
 if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
     log "Starting NAS backup"
     NAS_STATUS="FAILED"
-    NAS_PASS=""
 
-    # Retrieve password from Keychain
-    if NAS_PASS=$(security find-generic-password \
-        -s "${NAS_KEYCHAIN_SERVICE}" \
-        -a "${NAS_KEYCHAIN_ACCOUNT}" \
-        -w 2>/dev/null); then
-        log "NAS credentials retrieved from Keychain"
-    else
-        err "Could not retrieve NAS password from Keychain"
+    # Extract NAS host from share path (e.g. //10.0.100.142/automation → 10.0.100.142)
+    NAS_HOST=$(echo "$NAS_SHARE" | sed 's|^//||; s|/.*||')
+
+    # ── Pre-flight: connectivity check ────────────────────────────────
+    if ! nc -z -w "$NAS_CONNECT_TIMEOUT" "$NAS_HOST" 445 2>/dev/null; then
+        err "NAS unreachable at $NAS_HOST:445 (timeout ${NAS_CONNECT_TIMEOUT}s) — skipping NAS backup"
         EXIT_CODE=1
-    fi
+    else
+        log "NAS reachable at $NAS_HOST:445"
 
-    if [[ -n "$NAS_PASS" ]]; then
-        # Mount SMB share using temp credentials file (avoids password in ps output)
-        mkdir -p "${NAS_MOUNT_POINT}"
-        # URL-encode password (special chars like ! @ # break the SMB URL parser)
-        URL_PASS=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$NAS_PASS")
-        CRED_URL="//${NAS_KEYCHAIN_ACCOUNT}:${URL_PASS}@${NAS_SHARE#//}"
-        unset NAS_PASS URL_PASS  # clear password from memory immediately
-
-        CRED_FILE=$(mktemp)
-        chmod 600 "$CRED_FILE"
-        printf '%s' "$CRED_URL" > "$CRED_FILE"
-        unset CRED_URL
-
-        if mount_smbfs "$(cat "$CRED_FILE")" "${NAS_MOUNT_POINT}" 2>>"$LOGFILE"; then
-            rm -f "$CRED_FILE"
-            log "NAS mounted at ${NAS_MOUNT_POINT}"
-
-            # rsync to NAS (share mount + subdirectory)
-            NAS_DEST="${NAS_MOUNT_POINT}/${NAS_SUBDIR:-}/$(date '+%Y-%m-%d')"
-            mkdir -p "$NAS_DEST"
-            if rsync -a --no-owner --no-group --no-perms --delete \
-                --exclude='.git/' \
-                "$BACKUP_REPO/" "$NAS_DEST/" 2>>"$LOGFILE"; then
-                NAS_STATUS="OK"
-                log "NAS sync complete → $NAS_DEST"
-            else
-                err "NAS rsync failed"
-                EXIT_CODE=1
-            fi
-
-            # Prune NAS backups older than 30 days
-            NAS_PRUNE_DIR="${NAS_MOUNT_POINT}/${NAS_SUBDIR:-}"
-            find "$NAS_PRUNE_DIR" -maxdepth 1 -type d -name "20*" -mtime +30 -exec rm -rf {} + 2>/dev/null || true
-
-            # Unmount
-            umount "${NAS_MOUNT_POINT}" 2>>"$LOGFILE" || true
+        # ── Retrieve credentials from Keychain ────────────────────────
+        NAS_PASS=""
+        if NAS_PASS=$(security find-generic-password \
+            -s "${NAS_KEYCHAIN_SERVICE}" \
+            -a "${NAS_KEYCHAIN_ACCOUNT}" \
+            -w 2>/dev/null); then
+            log "NAS credentials retrieved from Keychain"
         else
-            rm -f "$CRED_FILE"
-            err "Could not mount NAS share"
+            err "Could not retrieve NAS password from Keychain"
             EXIT_CODE=1
         fi
-    else
-        unset NAS_PASS
+
+        if [[ -n "$NAS_PASS" ]]; then
+            # URL-encode password (special chars like ! @ # break the SMB URL parser)
+            URL_PASS=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$NAS_PASS")
+            SMB_URL="//${NAS_KEYCHAIN_ACCOUNT}:${URL_PASS}@${NAS_SHARE#//}"
+            unset NAS_PASS URL_PASS  # clear password from memory immediately
+
+            # ── Ensure mount point exists (user-owned, no sudo needed) ─
+            mkdir -p "$NAS_MOUNT_BASE"
+
+            # ── Clean up stale mount if present ────────────────────────
+            if mount | grep -q "$NAS_MOUNT_BASE" 2>/dev/null; then
+                log "Stale mount found at $NAS_MOUNT_BASE — unmounting"
+                umount "$NAS_MOUNT_BASE" 2>/dev/null || true
+                sleep 1
+            fi
+
+            # ── Mount with timeout (no Finder fallback) ───────────────
+            CRED_FILE=$(mktemp)
+            chmod 600 "$CRED_FILE"
+            printf '%s' "$SMB_URL" > "$CRED_FILE"
+            unset SMB_URL  # clear credentials from memory
+
+            # stderr → /dev/null: mount_smbfs leaks credentials in error messages
+            if timeout "$NAS_MOUNT_TIMEOUT" mount_smbfs "$(cat "$CRED_FILE")" "$NAS_MOUNT_BASE" 2>/dev/null; then
+                rm -f "$CRED_FILE"
+                log "NAS mounted at $NAS_MOUNT_BASE via mount_smbfs"
+
+                # ── Write access test ─────────────────────────────────
+                if touch "$NAS_MOUNT_BASE/.write_test" 2>/dev/null; then
+                    rm -f "$NAS_MOUNT_BASE/.write_test" 2>/dev/null
+                    log "Write access confirmed"
+
+                    # ── rsync to NAS ──────────────────────────────────
+                    NAS_DEST="$NAS_MOUNT_BASE/${NAS_SUBDIR:-}/$(date '+%Y-%m-%d')"
+                    if mkdir -p "$NAS_DEST" 2>>"$LOGFILE"; then
+                        log "Created NAS destination: $NAS_DEST"
+                    else
+                        err "Failed to create NAS destination directory: $NAS_DEST"
+                        EXIT_CODE=1
+                    fi
+
+                    if [[ -d "$NAS_DEST" ]]; then
+                        # Prefer Homebrew GNU rsync — Apple's openrsync is sandboxed
+                        # and gets "Operation not permitted" on network volumes under launchd
+                        RSYNC_BIN="/opt/homebrew/bin/rsync"
+                        if [[ ! -x "$RSYNC_BIN" ]]; then
+                            RSYNC_BIN="rsync"  # fall back to system rsync
+                        fi
+
+                        if "$RSYNC_BIN" -a --no-owner --no-group --no-perms --inplace --delete \
+                            --exclude='.git/' \
+                            "$BACKUP_REPO/" "$NAS_DEST/" 2>>"$LOGFILE"; then
+                            NAS_STATUS="OK"
+                            log "NAS sync complete → $NAS_DEST (via $RSYNC_BIN)"
+                        else
+                            # rsync failed — fall back to cp for resilience
+                            log "rsync failed on NAS, falling back to cp"
+                            if cp -a "$BACKUP_REPO/" "$NAS_DEST/" 2>>"$LOGFILE" && \
+                               rm -rf "$NAS_DEST/.git" 2>/dev/null; then
+                                NAS_STATUS="OK"
+                                log "NAS sync complete → $NAS_DEST (via cp fallback)"
+                            else
+                                err "NAS sync failed (both rsync and cp)"
+                                EXIT_CODE=1
+                            fi
+                        fi
+                    fi
+
+                    # ── Mark successful backup + prune to retention limit ─
+                    if [[ "$NAS_STATUS" == "OK" ]]; then
+                        # Stamp this backup as complete (only successful backups get this marker)
+                        date '+%Y-%m-%d %H:%M:%S' > "$NAS_DEST/.backup_complete" 2>/dev/null || true
+
+                        # Prune: keep NAS_RETENTION successful backups, delete oldest
+                        NAS_PRUNE_DIR="$NAS_MOUNT_BASE/${NAS_SUBDIR:-}"
+                        # List dated dirs that have the .backup_complete marker, newest first
+                        GOOD_BACKUPS=()
+                        while IFS= read -r dir; do
+                            if [[ -f "$dir/.backup_complete" ]]; then
+                                GOOD_BACKUPS+=("$dir")
+                            fi
+                        done < <(ls -dt "$NAS_PRUNE_DIR"/20* 2>/dev/null)
+
+                        GOOD_COUNT=${#GOOD_BACKUPS[@]}
+                        log "NAS retention: $GOOD_COUNT successful backups found (keeping $NAS_RETENTION)"
+
+                        if [[ "$GOOD_COUNT" -gt "$NAS_RETENTION" ]]; then
+                            # Delete oldest beyond retention limit
+                            for ((i=NAS_RETENTION; i<GOOD_COUNT; i++)); do
+                                PRUNE_TARGET="${GOOD_BACKUPS[$i]}"
+                                if rm -rf "$PRUNE_TARGET" 2>>"$LOGFILE"; then
+                                    log "Pruned old NAS backup: $(basename "$PRUNE_TARGET")"
+                                else
+                                    err "Failed to prune: $PRUNE_TARGET"
+                                fi
+                            done
+                        fi
+
+                        # Also clean up any incomplete backups (no .backup_complete marker)
+                        # older than the newest successful backup
+                        while IFS= read -r dir; do
+                            if [[ ! -f "$dir/.backup_complete" ]]; then
+                                log "Removing incomplete NAS backup: $(basename "$dir")"
+                                rm -rf "$dir" 2>>"$LOGFILE" || true
+                            fi
+                        done < <(ls -dt "$NAS_PRUNE_DIR"/20* 2>/dev/null)
+                    fi
+                else
+                    err "Write access denied on $NAS_MOUNT_BASE — mount is read-only"
+                    EXIT_CODE=1
+                fi
+
+                # Unmount (also handled by EXIT trap as safety net)
+                log "Unmounting NAS"
+                umount "$NAS_MOUNT_BASE" 2>>"$LOGFILE" || true
+            else
+                rm -f "$CRED_FILE"
+                err "mount_smbfs failed or timed out (${NAS_MOUNT_TIMEOUT}s limit)"
+                EXIT_CODE=1
+            fi
+        else
+            unset NAS_PASS
+        fi
     fi
 fi
+
+# ── Duration ──────────────────────────────────────────────────────────
+DURATION_SECS=$((SECONDS - BACKUP_START))
+DURATION="$((DURATION_SECS / 60))m $((DURATION_SECS % 60))s"
 
 # ── Summary Block (structured for parsing by notify script) ──────────
 REPO_SIZE=$(du -sh "$BACKUP_REPO" 2>/dev/null | cut -f1 || echo "unknown")
@@ -209,9 +317,15 @@ REPO_SIZE=$(du -sh "$BACKUP_REPO" 2>/dev/null | cut -f1 || echo "unknown")
     echo "NAS_ENABLED=$NAS_BACKUP_ENABLED"
     echo "CONV_CACHE=$INCLUDE_CONVERSATION_CACHE"
     echo "REPO_SIZE=$REPO_SIZE"
+    echo "DURATION=$DURATION"
     echo "EXIT_CODE=$EXIT_CODE"
     echo "──── END ────"
 } | tee -a "$LOGFILE"
+
+# ── Send notification (inline — no separate LaunchAgent) ─────────────
+"$SCRIPT_DIR/claude-backup-notify.sh" "$LOGFILE" 2>>"$LOGFILE" || {
+    err "Notification script failed (exit $?) — backup itself completed"
+}
 
 # ── Prune old logs (keep last 30 days) ───────────────────────────────
 find "$LOG_DIR" -name "backup_*.log" -mtime +30 -delete 2>/dev/null || true

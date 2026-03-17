@@ -34,9 +34,11 @@ Your `~/.claude` directory contains everything that makes Claude Code yours:
 ```
 
 - **Daily at 2:00 AM**: backup script runs via macOS LaunchAgent
-- **Daily at 7:30 AM**: notification script emails you a status report
+- **Email notification** is sent inline after backup completes — no separate timer, no risk of reporting on an incomplete run
+- **Duration tracking** — every backup records how long it took
 - Git history provides point-in-time restore capability
 - Each step is independent — Git failure doesn't block NAS, and vice versa
+- Works without a logged-in user — no GUI/Finder dependency
 
 ## Prerequisites
 
@@ -78,10 +80,13 @@ LOG_DIR="$HOME/Library/Logs/claude-backup"
 # ── NAS Settings ──────────────────────────────────────────────────────
 NAS_BACKUP_ENABLED=true                           # ← set to false if you don't have a NAS
 NAS_SHARE="//YOUR-NAS-IP/YOUR-SHARE-NAME"         # ← your SMB share
-NAS_MOUNT_POINT="/tmp/claude_nas_mount"
+NAS_MOUNT_BASE="$HOME/mounts/claude-backup"       # ← user-owned mount point (no sudo needed)
 NAS_SUBDIR="claude_code_backup"                   # ← subfolder within the share
 NAS_KEYCHAIN_SERVICE="claude-backup-nas"
 NAS_KEYCHAIN_ACCOUNT="your-nas-username"          # ← your NAS service account
+NAS_CONNECT_TIMEOUT=10                            # ← seconds before NAS is deemed offline
+NAS_MOUNT_TIMEOUT=30                              # ← seconds before mount is deemed hung
+NAS_RETENTION=7                                   # ← keep this many successful backups on NAS
 
 # ── Email Notification ────────────────────────────────────────────────
 NOTIFY_EMAIL="you@gmail.com"                      # ← your Gmail address
@@ -93,14 +98,19 @@ GMAIL_KEYCHAIN_ACCOUNT="you@gmail.com"            # ← your Gmail address
 
 ### 3. Update the LaunchAgent Plists
 
-The plist files contain hardcoded paths. Update them to match your username:
+The plist file contains hardcoded paths. Update it to match your username:
 
 ```bash
 cd ~/Projects/claude_backup/_backup_tools
 
-# Replace the username in both plists
+# Replace the username in the plist
 sed -i '' "s|/Users/youruser|$HOME|g" com.claude-backup.plist
-sed -i '' "s|/Users/youruser|$HOME|g" com.claude-backup-notify.plist
+```
+
+Also create the user-owned NAS mount directory:
+
+```bash
+mkdir -p ~/mounts/claude-backup
 ```
 
 Verify the paths look correct:
@@ -155,14 +165,11 @@ Gmail requires an App Password when 2-factor authentication is enabled:
 ### 7. Verify Everything Works
 
 ```bash
-# Check LaunchAgents are registered
-launchctl list | grep claude-backup
+# Run the validation suite (checks everything: mount, keychain, email, git, tools)
+~/Projects/claude_backup/_backup_tools/validate-backup.sh
 
-# Run a manual backup
+# Run a manual backup (includes email notification at the end)
 ~/Projects/claude_backup/_backup_tools/claude-backup.sh
-
-# Send a test notification
-~/Projects/claude_backup/_backup_tools/claude-backup-notify.sh
 
 # Check your inbox for the report email
 ```
@@ -173,13 +180,13 @@ launchctl list | grep claude-backup
 
 Once installed, backups run automatically:
 
-- **2:00 AM daily** — full backup (rsync + git push + NAS sync)
-- **7:30 AM daily** — email notification with backup status
+- **2:00 AM daily** — full backup (rsync + git push + NAS sync + email notification)
+- Email is sent **inline** after completion — no separate timer, guaranteed to have complete results and duration
 
 ### Manual / Ad-Hoc
 
 ```bash
-# Full backup
+# Full backup (includes email notification at the end)
 ~/Projects/claude_backup/_backup_tools/claude-backup.sh
 
 # Backup without NAS (GitHub only)
@@ -188,7 +195,10 @@ NAS_BACKUP_ENABLED=false ~/Projects/claude_backup/_backup_tools/claude-backup.sh
 # Backup without conversation cache (smaller, faster)
 INCLUDE_CONVERSATION_CACHE=false ~/Projects/claude_backup/_backup_tools/claude-backup.sh
 
-# Send notification email
+# Run the validation suite
+~/Projects/claude_backup/_backup_tools/validate-backup.sh
+
+# Re-send notification for the latest backup
 ~/Projects/claude_backup/_backup_tools/claude-backup-notify.sh
 ```
 
@@ -231,10 +241,12 @@ See `RESTORE.md` (or `RESTORE.html` for the styled version) for full restoration
 ├── _backup_tools/                    ← all backup infrastructure
 │   ├── backup.conf                   ← configuration (edit this)
 │   ├── claude-backup.sh              ← main backup script
-│   ├── claude-backup-notify.sh       ← email notification script
+│   ├── claude-backup-notify.sh       ← email notification (called by backup script)
+│   ├── validate-backup.sh            ← pre-flight validation (38 checks)
 │   ├── setup.sh                      ← one-time interactive setup
-│   ├── com.claude-backup.plist  ← LaunchAgent (daily 2:00 AM)
-│   ├── com.claude-backup-notify.plist  ← LaunchAgent (daily 7:30 AM)
+│   ├── com.claude-backup.plist       ← LaunchAgent (daily 2:00 AM)
+│   ├── CHANGELOG.md                  ← detailed change history
+│   ├── CHANGELOG.html                ← styled HTML changelog
 │   ├── INSTALL.md                    ← this file
 │   ├── INSTALL.html                  ← styled HTML version
 │   ├── RESTORE.md                    ← restoration guide
@@ -260,6 +272,9 @@ See `RESTORE.md` (or `RESTORE.html` for the styled version) for full restoration
 - **Credentials cleared from memory** — variables are `unset` immediately after use
 - **Dedicated msmtp config** — stored in `_backup_tools/.msmtprc` (gitignored), won't conflict with your system config
 - **Lockfile protection** — prevents concurrent backup runs from corrupting state
+- **EXIT trap cleanup** — unmounts NAS and removes lockfile even on crash or kill
+- **NAS connectivity pre-check** — `nc -z` test with timeout before attempting mount
+- **Mount timeout** — `mount_smbfs` wrapped with `timeout` to prevent indefinite hangs
 - **Pre-commit size check** — files over 90MB are flagged before committing (GitHub's limit is 100MB)
 
 ## Customization
@@ -329,7 +344,7 @@ ls ~/Library/Logs/claude-backup/
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | NAS mount "No route to host" but server pings | Password has special characters | Script URL-encodes automatically; verify password: `security find-generic-password -s claude-backup-nas -w` |
-| NAS mount "Permission denied" on mkdir | Mount point under `/Volumes/` | Use `/tmp/` mount point (default in config) |
+| NAS mount "Permission denied" on mkdir | Mount point not user-owned | Use `~/mounts/claude-backup` (default in config) — must be owned by your user |
 | NAS subfolder access denied | Service account lacks permissions | Fix share ACLs on the NAS |
 | Gmail auth fails | Not using App Password | Generate at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) |
 | Schedule change not working | Plist not reloaded | `launchctl unload` then `launchctl load` the plist |

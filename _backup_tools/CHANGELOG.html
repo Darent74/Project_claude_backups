@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changelog — Claude Code Backup System</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-orange: #d29922;
+            --accent-purple: #bc8cff;
+            --code-bg: #1a1f2b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            color: var(--accent-blue);
+            margin-top: 2.5rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3rem;
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            color: var(--accent-green);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        h4 {
+            font-size: 1rem;
+            color: var(--accent-purple);
+            margin-top: 1.2rem;
+            margin-bottom: 0.4rem;
+        }
+
+        p { margin-bottom: 0.8rem; color: var(--text-secondary); }
+
+        .summary-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent-blue);
+            border-radius: 6px;
+            padding: 1rem 1.2rem;
+            margin: 1rem 0 1.5rem 0;
+            color: var(--text-primary);
+        }
+
+        .before-after {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .before, .after {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+
+        .before { border-top: 3px solid var(--accent-red); }
+        .after { border-top: 3px solid var(--accent-green); }
+
+        .before h5, .after h5 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .before h5 { color: var(--accent-red); }
+        .after h5 { color: var(--accent-green); }
+
+        .before p, .after p { font-size: 0.9rem; margin-bottom: 0.4rem; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            text-align: left;
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--border);
+            font-weight: 600;
+        }
+
+        td {
+            padding: 0.5rem 0.8rem;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        tr:nth-child(even) td { background: var(--bg-secondary); }
+
+        code {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: var(--code-bg);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.88em;
+            color: var(--accent-orange);
+        }
+
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 0.8rem 0;
+            font-size: 0.88rem;
+            line-height: 1.5;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: var(--text-primary);
+        }
+
+        .tag {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.15em 0.6em;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-right: 0.3rem;
+        }
+
+        .tag-changed { background: rgba(210, 153, 34, 0.15); color: var(--accent-orange); border: 1px solid rgba(210, 153, 34, 0.3); }
+        .tag-added { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); border: 1px solid rgba(63, 185, 80, 0.3); }
+        .tag-removed { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); border: 1px solid rgba(248, 81, 73, 0.3); }
+        .tag-breaking { background: rgba(248, 81, 73, 0.25); color: var(--accent-red); border: 1px solid rgba(248, 81, 73, 0.5); }
+
+        .step-list {
+            list-style: none;
+            counter-reset: step;
+            margin: 1rem 0;
+        }
+
+        .step-list li {
+            counter-increment: step;
+            padding: 0.5rem 0 0.5rem 2.5rem;
+            position: relative;
+            color: var(--text-secondary);
+        }
+
+        .step-list li::before {
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            width: 1.8rem;
+            height: 1.8rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            text-align: center;
+            line-height: 1.8rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 2rem 0;
+        }
+
+        .footer {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        @media (max-width: 700px) {
+            body { padding: 1rem; }
+            .before-after { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>Changelog — Claude Code Backup System</h1>
+
+<!-- ═══════════════════════════ v2.0.0 ═══════════════════════════ -->
+
+<h2><span class="tag tag-breaking">Breaking</span> [2.0.0] — 2026-03-18</h2>
+
+<div class="summary-box">
+    Major reliability overhaul. The backup system is now <strong>foolproof</strong> — it works without a logged-in user, NAS operations fail fast instead of hanging, email notifications are guaranteed to arrive after backup completion, and NAS retention is based on successful backup count rather than age.
+</div>
+
+<!-- ── NAS Mounting ── -->
+
+<h3><span class="tag tag-changed">Changed</span> NAS Mounting — Direct <code>mount_smbfs</code> Only</h3>
+
+<div class="before-after">
+    <div class="before">
+        <h5>Before</h5>
+        <p>Mounted to <code>/tmp/claude_nas_mount</code></p>
+        <p>Fell back to <code>osascript</code> Finder mount when sandbox blocked writes</p>
+        <p>Finder mount requires GUI session — <strong>hung for 1h49m</strong> on 2026-03-18 when no user was logged in</p>
+    </div>
+    <div class="after">
+        <h5>After</h5>
+        <p>Mounts to <code>~/mounts/claude-backup</code> (user-owned, no sudo)</p>
+        <p>Pre-checks NAS connectivity with <code>nc -z</code> — skips instantly if offline</p>
+        <p>Wraps <code>mount_smbfs</code> with <code>timeout 30s</code> — no hangs possible</p>
+        <p>Works identically whether logged in or not</p>
+    </div>
+</div>
+
+<table>
+    <tr><th>Config Key</th><th>Old Value</th><th>New Value</th></tr>
+    <tr><td><code>NAS_MOUNT_POINT</code></td><td><code>/tmp/claude_nas_mount</code></td><td><em>(removed)</em></td></tr>
+    <tr><td><code>NAS_MOUNT_BASE</code></td><td><em>(new)</em></td><td><code>$HOME/mounts/claude-backup</code></td></tr>
+    <tr><td><code>NAS_CONNECT_TIMEOUT</code></td><td><em>(new)</em></td><td><code>10</code> seconds</td></tr>
+    <tr><td><code>NAS_MOUNT_TIMEOUT</code></td><td><em>(new)</em></td><td><code>30</code> seconds</td></tr>
+</table>
+
+<!-- ── Notification ── -->
+
+<h3><span class="tag tag-changed">Changed</span> Notification — Inline After Completion</h3>
+
+<div class="before-after">
+    <div class="before">
+        <h5>Before</h5>
+        <p>Separate LaunchAgent (<code>com.dt74.claude-backup-notify</code>) ran on a fixed 6:45 AM timer</p>
+        <p>If backup took longer than 15 minutes, notification found an incomplete log and <strong>crashed silently — no email sent</strong></p>
+    </div>
+    <div class="after">
+        <h5>After</h5>
+        <p>Backup script calls notification directly as its final step</p>
+        <p>Email is <strong>guaranteed</strong> to contain complete results</p>
+        <p>Guard checks for <code>──── END ────</code> marker before parsing</p>
+        <p>Accepts log path as <code>$1</code> — no guessing which log to parse</p>
+    </div>
+</div>
+
+<p><span class="tag tag-removed">Removed</span> <code>com.dt74.claude-backup-notify.plist</code> — no longer needed.</p>
+
+<!-- ── NAS Retention ── -->
+
+<h3><span class="tag tag-changed">Changed</span> NAS Retention — 7 Successful Backups</h3>
+
+<div class="before-after">
+    <div class="before">
+        <h5>Before</h5>
+        <p>Pruned NAS backups older than 30 days by file modification time</p>
+        <p>Unlimited accumulation within 30 days</p>
+        <p>Failed backups counted the same as successful ones</p>
+    </div>
+    <div class="after">
+        <h5>After</h5>
+        <p>Keeps exactly <strong>7 successful backups</strong> (configurable via <code>NAS_RETENTION</code>)</p>
+        <p><code>.backup_complete</code> marker written only after successful rsync</p>
+        <p>Only marked directories count toward retention</p>
+        <p>Incomplete backups (no marker) cleaned up automatically</p>
+    </div>
+</div>
+
+<table>
+    <tr><th>Config Key</th><th>Old Value</th><th>New Value</th></tr>
+    <tr><td><em>(30-day prune)</em></td><td><code>find -mtime +30</code></td><td><em>(removed)</em></td></tr>
+    <tr><td><code>NAS_RETENTION</code></td><td><em>(new)</em></td><td><code>7</code></td></tr>
+</table>
+
+<!-- ── Duration Tracking ── -->
+
+<h3><span class="tag tag-added">Added</span> Duration Tracking</h3>
+
+<p>Every backup records total duration using the bash <code>$SECONDS</code> built-in. Duration appears in the log summary block (<code>DURATION=0m 44s</code>) and the email notification report.</p>
+
+<!-- ── EXIT Trap ── -->
+
+<h3><span class="tag tag-added">Added</span> EXIT Trap Cleanup</h3>
+
+<p>A comprehensive EXIT trap now handles cleanup on any exit — normal, error, or signal:</p>
+
+<table>
+    <tr><th>Cleanup Action</th><th>Prevents</th></tr>
+    <tr><td>Remove lockfile</td><td>Stale locks after crashes blocking future runs</td></tr>
+    <tr><td>Unmount NAS at <code>$NAS_MOUNT_BASE</code></td><td>Stale SMB mounts after crashes or <code>kill</code></td></tr>
+</table>
+
+<!-- ── Validation Script ── -->
+
+<h3><span class="tag tag-added">Added</span> Validation Script (<code>validate-backup.sh</code>)</h3>
+
+<p>Comprehensive pre-flight validation that checks 38 items across 10 categories:</p>
+
+<table>
+    <tr><th>Category</th><th>Checks</th></tr>
+    <tr><td>Configuration</td><td>All required variables set with valid values</td></tr>
+    <tr><td>Source & Repo</td><td>Directories exist, git remote configured and reachable</td></tr>
+    <tr><td>Mount Directory</td><td>Exists, owned by current user</td></tr>
+    <tr><td>NAS Connectivity</td><td>Ping, SMB port 445 open</td></tr>
+    <tr><td>Keychain</td><td>NAS password, Gmail App Password retrievable</td></tr>
+    <tr><td>NAS Mount & Write</td><td>Live mount + write test + subdirectory creation + clean unmount</td></tr>
+    <tr><td>Required Tools</td><td>rsync, git, msmtp, python3, nc, timeout, Homebrew GNU rsync</td></tr>
+    <tr><td>Email</td><td>msmtp config file exists</td></tr>
+    <tr><td>LaunchAgent</td><td>Backup agent loaded, notify agent removed, last exit code</td></tr>
+    <tr><td>Scripts</td><td>Exist and are executable</td></tr>
+</table>
+
+<pre><code>~/Projects/claude_backup/_backup_tools/validate-backup.sh</code></pre>
+
+<hr>
+
+<!-- ── Migration Guide ── -->
+
+<h3>Migration Guide</h3>
+
+<p>If upgrading from v1.x:</p>
+
+<ol class="step-list">
+    <li>
+        Create the mount directory:
+        <pre><code>mkdir -p ~/mounts/claude-backup</code></pre>
+    </li>
+    <li>
+        Unload and remove the notify LaunchAgent:
+        <pre><code>launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist
+rm ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist</code></pre>
+    </li>
+    <li>
+        Update <code>backup.conf</code> — replace <code>NAS_MOUNT_POINT</code> with:
+        <pre><code>NAS_MOUNT_BASE="$HOME/mounts/claude-backup"
+NAS_CONNECT_TIMEOUT=10
+NAS_MOUNT_TIMEOUT=30
+NAS_RETENTION=7</code></pre>
+    </li>
+    <li>
+        Copy the new scripts (<code>claude-backup.sh</code>, <code>claude-backup-notify.sh</code>, <code>validate-backup.sh</code>) to <code>_backup_tools/</code>.
+    </li>
+    <li>
+        Reload the backup LaunchAgent:
+        <pre><code>launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup.plist
+launchctl load ~/Library/LaunchAgents/com.dt74.claude-backup.plist</code></pre>
+    </li>
+    <li>
+        Run the validation:
+        <pre><code>~/Projects/claude_backup/_backup_tools/validate-backup.sh</code></pre>
+    </li>
+</ol>
+
+<hr>
+
+<!-- ═══════════════════════════ v1.0.0 ═══════════════════════════ -->
+
+<h2>[1.0.0] — 2026-03-13</h2>
+
+<h3>Initial Release</h3>
+
+<ul style="color: var(--text-secondary); padding-left: 1.5rem; margin-top: 0.5rem;">
+    <li>rsync-based mirroring of <code>~/.claude</code> to a git repository</li>
+    <li>Git commit + push to GitHub (private repo)</li>
+    <li>Optional NAS backup via SMB with Finder fallback</li>
+    <li>Email notifications via msmtp + Gmail App Password</li>
+    <li>macOS LaunchAgent scheduling (backup + separate notification)</li>
+    <li>Lockfile-based concurrency protection</li>
+    <li>Pre-commit large file detection (90MB GitHub limit)</li>
+    <li>30-day log and NAS backup pruning</li>
+    <li>Full restoration guide (MD + HTML)</li>
+    <li>Interactive setup script</li>
+</ul>
+
+<div class="footer">
+    Created by: DT74 — Daren Threadingham
+</div>
+
+</body>
+</html>
