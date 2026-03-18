@@ -36,7 +36,7 @@ Major reliability overhaul. The backup system is now **foolproof** — it works 
 
 #### Notification — Inline After Backup Completion
 
-**Before:** A separate LaunchAgent (`com.dt74.claude-backup-notify`) ran on a fixed timer (6:45 AM, 15 minutes after the 6:30 AM backup). If the backup took longer than 15 minutes, the notification script found an incomplete log file and crashed silently — no email was sent.
+**Before:** A separate LaunchAgent (`com.claude-backup-notify`) ran on a fixed timer (6:45 AM, 15 minutes after the 6:30 AM backup). If the backup took longer than 15 minutes, the notification script found an incomplete log file and crashed silently — no email was sent.
 
 **After:** The notification script is now called **directly by the backup script** as its final step, after all operations (rsync, git, NAS) are complete. The separate notify LaunchAgent has been removed.
 
@@ -46,7 +46,7 @@ Additional safeguards:
 - Fallback: if run standalone (no `$1` argument), it falls back to finding the latest complete log
 
 **Removed files:**
-- `com.dt74.claude-backup-notify.plist` — no longer needed
+- `com.claude-backup-notify.plist` — no longer needed
 
 #### NAS Retention — Keep 7 Successful Backups
 
@@ -116,8 +116,8 @@ mkdir -p ~/mounts/claude-backup
 #### 2. Unload and remove the notify LaunchAgent
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist
-rm ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-backup-notify.plist
+rm ~/Library/LaunchAgents/com.claude-backup-notify.plist
 ```
 
 #### 3. Update your `backup.conf`
@@ -142,8 +142,8 @@ Copy the new versions of `claude-backup.sh`, `claude-backup-notify.sh`, and `val
 #### 5. Reload the backup LaunchAgent
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup.plist
-launchctl load ~/Library/LaunchAgents/com.dt74.claude-backup.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-backup.plist
+launchctl load ~/Library/LaunchAgents/com.claude-backup.plist
 ```
 
 #### 6. Validate

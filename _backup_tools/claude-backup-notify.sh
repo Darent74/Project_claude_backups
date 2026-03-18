@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/backup.conf"
 
 LOG_DIR="${LOG_DIR:-$HOME/Library/Logs/claude-backup}"
-NOTIFY_EMAIL="${NOTIFY_EMAIL:-darent74@gmail.com}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL:-you@gmail.com}"
 
 # ── Find log to report on ────────────────────────────────────────────
 # Prefer $1 argument (passed by backup script after completion).

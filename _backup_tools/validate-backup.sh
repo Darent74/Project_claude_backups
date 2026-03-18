@@ -194,23 +194,23 @@ fi
 # ── 9. LaunchAgent State ─────────────────────────────────────────────
 section "LaunchAgent State"
 
-if launchctl list 2>/dev/null | grep -q "com.dt74.claude-backup$"; then
-    pass "com.dt74.claude-backup is loaded"
+if launchctl list 2>/dev/null | grep -q "com.claude-backup$"; then
+    pass "com.claude-backup is loaded"
     # Check exit status
-    AGENT_EXIT=$(launchctl list 2>/dev/null | grep "com.dt74.claude-backup$" | awk '{print $2}')
+    AGENT_EXIT=$(launchctl list 2>/dev/null | grep "com.claude-backup$" | awk '{print $2}')
     if [[ "$AGENT_EXIT" == "0" ]]; then
         pass "Last run exit code: 0 (success)"
     else
         warn "Last run exit code: $AGENT_EXIT (check logs)"
     fi
 else
-    fail "com.dt74.claude-backup is NOT loaded"
+    fail "com.claude-backup is NOT loaded"
 fi
 
-if launchctl list 2>/dev/null | grep -q "com.dt74.claude-backup-notify"; then
-    warn "com.dt74.claude-backup-notify is still loaded (should be removed — notification is now inline)"
+if launchctl list 2>/dev/null | grep -q "com.claude-backup-notify"; then
+    warn "com.claude-backup-notify is still loaded (should be removed — notification is now inline)"
 else
-    pass "com.dt74.claude-backup-notify is NOT loaded (correct — notification is inline)"
+    pass "com.claude-backup-notify is NOT loaded (correct — notification is inline)"
 fi
 
 # ── 10. Backup Scripts ───────────────────────────────────────────────

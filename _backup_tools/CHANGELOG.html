@@ -267,7 +267,7 @@
 <div class="before-after">
     <div class="before">
         <h5>Before</h5>
-        <p>Separate LaunchAgent (<code>com.dt74.claude-backup-notify</code>) ran on a fixed 6:45 AM timer</p>
+        <p>Separate LaunchAgent (<code>com.claude-backup-notify</code>) ran on a fixed 6:45 AM timer</p>
         <p>If backup took longer than 15 minutes, notification found an incomplete log and <strong>crashed silently — no email sent</strong></p>
     </div>
     <div class="after">
@@ -279,7 +279,7 @@
     </div>
 </div>
 
-<p><span class="tag tag-removed">Removed</span> <code>com.dt74.claude-backup-notify.plist</code> — no longer needed.</p>
+<p><span class="tag tag-removed">Removed</span> <code>com.claude-backup-notify.plist</code> — no longer needed.</p>
 
 <!-- ── NAS Retention ── -->
 
@@ -362,8 +362,8 @@
     </li>
     <li>
         Unload and remove the notify LaunchAgent:
-        <pre><code>launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist
-rm ~/Library/LaunchAgents/com.dt74.claude-backup-notify.plist</code></pre>
+        <pre><code>launchctl unload ~/Library/LaunchAgents/com.claude-backup-notify.plist
+rm ~/Library/LaunchAgents/com.claude-backup-notify.plist</code></pre>
     </li>
     <li>
         Update <code>backup.conf</code> — replace <code>NAS_MOUNT_POINT</code> with:
@@ -377,8 +377,8 @@ NAS_RETENTION=7</code></pre>
     </li>
     <li>
         Reload the backup LaunchAgent:
-        <pre><code>launchctl unload ~/Library/LaunchAgents/com.dt74.claude-backup.plist
-launchctl load ~/Library/LaunchAgents/com.dt74.claude-backup.plist</code></pre>
+        <pre><code>launchctl unload ~/Library/LaunchAgents/com.claude-backup.plist
+launchctl load ~/Library/LaunchAgents/com.claude-backup.plist</code></pre>
     </li>
     <li>
         Run the validation:

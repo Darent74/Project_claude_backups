@@ -152,7 +152,7 @@ if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
     log "Starting NAS backup"
     NAS_STATUS="FAILED"
 
-    # Extract NAS host from share path (e.g. //10.0.100.142/automation → 10.0.100.142)
+    # Extract NAS host from share path (e.g. //192.168.1.100/share → 192.168.1.100)
     NAS_HOST=$(echo "$NAS_SHARE" | sed 's|^//||; s|/.*||')
 
     # ── Pre-flight: connectivity check ────────────────────────────────
