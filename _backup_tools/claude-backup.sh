@@ -45,7 +45,9 @@ cleanup() {
     rm -f "$LOCKFILE"
     # Unmount NAS if still mounted at our mount point
     if mount | grep -q "$NAS_MOUNT_BASE" 2>/dev/null; then
-        umount "$NAS_MOUNT_BASE" 2>/dev/null || true
+        diskutil unmount "$NAS_MOUNT_BASE" 2>/dev/null \
+            || umount "$NAS_MOUNT_BASE" 2>/dev/null \
+            || true
     fi
 }
 trap cleanup EXIT
@@ -108,6 +110,16 @@ else
     EXIT_CODE=1
 fi
 
+# ── Step 1b: Sanitize secrets from repo copy ─────────────────────────
+if [[ -f "$SCRIPT_DIR/sanitize-settings.sh" ]]; then
+    if "$SCRIPT_DIR/sanitize-settings.sh" 2>>"$LOGFILE"; then
+        log "Settings sanitized (secrets replaced with placeholders)"
+    else
+        err "Settings sanitization failed — secrets may be committed"
+        EXIT_CODE=1
+    fi
+fi
+
 # ── Step 2: Git commit + push ────────────────────────────────────────
 GIT_STATUS="SKIPPED"
 cd "$BACKUP_REPO"
@@ -152,8 +164,8 @@ if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
     log "Starting NAS backup"
     NAS_STATUS="FAILED"
 
-    # Extract NAS host from share path (e.g. //192.168.1.100/share → 192.168.1.100)
-    NAS_HOST=$(echo "$NAS_SHARE" | sed 's|^//||; s|/.*||')
+    # NAS_HOST is set in backup.conf (hostname or IP)
+    NAS_HOST="${NAS_HOST:-$(echo "$NAS_SHARE" | sed 's|^//||; s|/.*||')}"
 
     # ── Pre-flight: connectivity check ────────────────────────────────
     if ! nc -z -w "$NAS_CONNECT_TIMEOUT" "$NAS_HOST" 445 2>/dev/null; then
@@ -180,24 +192,30 @@ if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
             SMB_URL="//${NAS_KEYCHAIN_ACCOUNT}:${URL_PASS}@${NAS_SHARE#//}"
             unset NAS_PASS URL_PASS  # clear password from memory immediately
 
-            # ── Ensure mount point exists (user-owned, no sudo needed) ─
-            mkdir -p "$NAS_MOUNT_BASE"
-
-            # ── Clean up stale mount if present ────────────────────────
+            # ── Prepare mount point (fresh dir with full RW) ────────────
+            # SMB mounts inherit the mount point's permissions on macOS.
+            # A restrictive mount point → read-only mount. So we recreate
+            # it with 0777 every time to guarantee write access.
             if mount | grep -q "$NAS_MOUNT_BASE" 2>/dev/null; then
                 log "Stale mount found at $NAS_MOUNT_BASE — unmounting"
-                umount "$NAS_MOUNT_BASE" 2>/dev/null || true
+                diskutil unmount "$NAS_MOUNT_BASE" 2>/dev/null \
+                    || umount "$NAS_MOUNT_BASE" 2>/dev/null \
+                    || true
                 sleep 1
             fi
+            rm -rf "$NAS_MOUNT_BASE"
+            mkdir -p "$NAS_MOUNT_BASE"
+            chmod 0777 "$NAS_MOUNT_BASE"
 
-            # ── Mount with timeout (no Finder fallback) ───────────────
+            # ── Mount with explicit RW mode flags ─────────────────────
             CRED_FILE=$(mktemp)
             chmod 600 "$CRED_FILE"
             printf '%s' "$SMB_URL" > "$CRED_FILE"
             unset SMB_URL  # clear credentials from memory
 
+            # -f 0777 = file mode, -d 0777 = dir mode → full RW on mounted filesystem
             # stderr → /dev/null: mount_smbfs leaks credentials in error messages
-            if timeout "$NAS_MOUNT_TIMEOUT" mount_smbfs "$(cat "$CRED_FILE")" "$NAS_MOUNT_BASE" 2>/dev/null; then
+            if timeout "$NAS_MOUNT_TIMEOUT" mount_smbfs -f 0777 -d 0777 "$(cat "$CRED_FILE")" "$NAS_MOUNT_BASE" 2>/dev/null; then
                 rm -f "$CRED_FILE"
                 log "NAS mounted at $NAS_MOUNT_BASE via mount_smbfs"
 
@@ -288,7 +306,9 @@ if [[ "$NAS_BACKUP_ENABLED" == "true" ]]; then
 
                 # Unmount (also handled by EXIT trap as safety net)
                 log "Unmounting NAS"
-                umount "$NAS_MOUNT_BASE" 2>>"$LOGFILE" || true
+                diskutil unmount "$NAS_MOUNT_BASE" 2>>"$LOGFILE" \
+                    || umount "$NAS_MOUNT_BASE" 2>>"$LOGFILE" \
+                    || true
             else
                 rm -f "$CRED_FILE"
                 err "mount_smbfs failed or timed out (${NAS_MOUNT_TIMEOUT}s limit)"

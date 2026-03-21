@@ -216,9 +216,9 @@
     </tbody>
 </table>
 
-<!-- Quick Restore -->
-<h2>Quick Restore (Full)</h2>
-<p>Three commands to restore everything:</p>
+<!-- Quick Restore (macOS) -->
+<h2>Quick Restore (macOS — Full)</h2>
+<p>Four steps to restore everything:</p>
 
 <div class="step">
     <p><span class="step-number">1</span> <strong>Clone the backup repo</strong></p>
@@ -237,11 +237,45 @@
 </div>
 
 <div class="step">
-    <p><span class="step-number">3</span> <strong>Re-enable automated backups</strong></p>
+    <p><span class="step-number">3</span> <strong>Re-inject secrets</strong></p>
+    <pre><code><span class="comment"># The repo uses placeholders — secrets are NOT stored in git.</span>
+<span class="comment"># Option A: edit ~/.claude/settings.json directly</span>
+<span class="comment">#   Replace "__GITHUB_PAT_SET_VIA_ENV__" with your actual PAT</span>
+<span class="comment">#   Replace "__ATLASSIAN_TOKEN_SET_VIA_ENV__" with your actual token</span>
+
+<span class="comment"># Option B (recommended): add env vars to ~/.zshrc</span>
+<span class="cmd">export</span> GITHUB_PERSONAL_ACCESS_TOKEN=<span class="path">"your-github-pat"</span>
+<span class="cmd">export</span> ATLASSIAN_API_TOKEN=<span class="path">"your-atlassian-token"</span>
+<span class="comment"># Shell env vars override settings.json values at runtime.</span></code></pre>
+</div>
+
+<div class="step">
+    <p><span class="step-number">4</span> <strong>Re-enable automated backups</strong></p>
     <pre><code><span class="cmd">cd</span> ~/Projects/claude_backup && <span class="cmd">bash</span> _backup_tools/setup.sh</code></pre>
 </div>
 
 <p class="warning">After restoring, restart Claude Code to pick up the restored configuration.</p>
+
+<!-- Quick Restore (Linux) -->
+<h2>Quick Restore (Linux — Remote Server)</h2>
+<p>Deploy skills and config to a Linux server from the backup repo:</p>
+
+<div class="step">
+    <p><span class="step-number">1</span> <strong>Clone and run setup</strong></p>
+    <pre><code><span class="cmd">git clone</span> git@github.com:<span class="path">your-username/claude-code-backup.git</span> ~/claude-backup
+<span class="cmd">bash</span> ~/claude-backup/_backup_tools/<span class="path">linux-setup.sh</span></code></pre>
+</div>
+
+<div class="card">
+    <p>The setup script will:</p>
+    <ul>
+        <li>Copy skills, agents, commands, and hooks to <code>~/.claude/</code></li>
+        <li>Generate <code>settings.json</code> with Linux-appropriate paths</li>
+        <li>Remove macOS-only hooks (e.g. sound notifications)</li>
+        <li>List marketplace plugins and offer to install them</li>
+        <li>Prompt you to set environment variables for secrets</li>
+    </ul>
+</div>
 
 <!-- Selective Restore -->
 <h2>Selective Restore</h2>
@@ -276,19 +310,24 @@
 <!-- NAS Restore -->
 <h2>Restore from NAS</h2>
 <p>If GitHub is unavailable, restore from the NAS backup:</p>
-<pre><code><span class="comment"># Mount the NAS share</span>
-<span class="cmd">mkdir</span> <span class="flag">-p</span> /tmp/claude_nas_mount
-<span class="cmd">mount_smbfs</span> <span class="path">//nas-service-account@192.168.1.100/automation</span> /tmp/claude_nas_mount
+<pre><code><span class="comment"># Create mount point with full RW permissions</span>
+<span class="cmd">mkdir</span> <span class="flag">-p</span> ~/mounts/claude-restore
+<span class="cmd">chmod</span> <span class="flag">0777</span> ~/mounts/claude-restore
+
+<span class="comment"># Mount the NAS share (use hostname or IP)</span>
+<span class="cmd">mount_smbfs</span> <span class="flag">-f 0777 -d 0777</span> <span class="path">//nas-service-account@your-nas-host/your-share</span> ~/mounts/claude-restore
 
 <span class="comment"># List available backup dates</span>
-<span class="cmd">ls</span> /tmp/claude_nas_mount/claude_code_backup/
+<span class="cmd">ls</span> ~/mounts/claude-restore/claude_code_backup/
 
 <span class="comment"># Restore from a specific date</span>
 <span class="cmd">rsync</span> <span class="flag">-av --exclude=</span><span class="path">'.git/'</span> \
-    /tmp/claude_nas_mount/claude_code_backup/2026-03-13/ ~/.claude/
+    ~/mounts/claude-restore/claude_code_backup/2026-03-21/ ~/.claude/
+
+<span class="comment"># Re-inject secrets (see Quick Restore step 3 above)</span>
 
 <span class="comment"># Unmount</span>
-<span class="cmd">umount</span> /tmp/claude_nas_mount</code></pre>
+<span class="cmd">diskutil unmount</span> ~/mounts/claude-restore</code></pre>
 
 <!-- Verification -->
 <h2>Verification Checklist</h2>
@@ -365,14 +404,29 @@
             <td>Script URL-encodes automatically; verify password in Keychain is correct</td>
         </tr>
         <tr>
-            <td>NAS mount "Permission denied" on mkdir</td>
-            <td>Mount point under <code>/Volumes/</code> (root-owned)</td>
-            <td>Use <code>/tmp/</code> mount point (configured in <code>backup.conf</code>)</td>
+            <td>NAS mount "No route to host" via IP</td>
+            <td>Not on LAN / VPN</td>
+            <td>Use a Tailscale hostname instead of IP in <code>backup.conf</code></td>
+        </tr>
+        <tr>
+            <td>NAS mount read-only / write fails</td>
+            <td>Missing mount mode flags</td>
+            <td>Use <code>mount_smbfs -f 0777 -d 0777</code> and <code>chmod 0777</code> on mount point dir</td>
+        </tr>
+        <tr>
+            <td>NAS unmount "Resource busy"</td>
+            <td><code>umount</code> doesn't flush I/O</td>
+            <td>Use <code>diskutil unmount</code> instead (script does this automatically)</td>
         </tr>
         <tr>
             <td>NAS subfolder access denied</td>
             <td>Service account lacks ACL permissions</td>
             <td>Fix NAS share permissions for the service account</td>
+        </tr>
+        <tr>
+            <td>Secrets missing after restore</td>
+            <td>Repo uses placeholders since sanitization</td>
+            <td>Re-inject via settings.json edit or shell env vars (see Quick Restore step 3)</td>
         </tr>
         <tr>
             <td>Schedule change not taking effect</td>

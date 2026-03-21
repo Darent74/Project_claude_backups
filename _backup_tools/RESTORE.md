@@ -10,9 +10,9 @@
 | GitHub CLI | `brew install gh` | `gh --version` |
 | gh authenticated | `gh auth login` | `gh auth status` |
 
-## Quick Restore (Full)
+## Quick Restore (macOS — Full)
 
-Three commands to restore everything:
+Four steps to restore everything:
 
 ```bash
 # 1. Clone the backup repo
@@ -22,11 +22,40 @@ gh repo clone your-username/claude-code-backup ~/Projects/claude_backup
 rsync -av --exclude='_backup_tools/' --exclude='.git/' --exclude='.gitignore' \
     ~/Projects/claude_backup/ ~/.claude/
 
-# 3. Re-enable automated backups
+# 3. Re-inject secrets (repo copy has placeholders, not real values)
+#    Option A: edit settings.json directly
+#    Replace "__GITHUB_PAT_SET_VIA_ENV__" and "__ATLASSIAN_TOKEN_SET_VIA_ENV__"
+#    with your actual tokens in ~/.claude/settings.json
+#
+#    Option B (recommended): set env vars in your shell profile (~/.zshrc)
+#    export GITHUB_PERSONAL_ACCESS_TOKEN="your-github-pat"
+#    export ATLASSIAN_API_TOKEN="your-atlassian-token"
+#    Shell env vars override settings.json values at runtime.
+
+# 4. Re-enable automated backups
 cd ~/Projects/claude_backup && bash _backup_tools/setup.sh
 ```
 
 After restoring, restart Claude Code to pick up the restored configuration.
+
+## Quick Restore (Linux — Remote Server)
+
+Deploy skills and config to a Linux server from the backup repo:
+
+```bash
+# 1. Clone the backup repo
+git clone git@github.com:your-username/claude-code-backup.git ~/claude-backup
+
+# 2. Run the automated setup script
+~/claude-backup/_backup_tools/linux-setup.sh
+```
+
+The setup script will:
+- Copy skills, agents, commands, and hooks to `~/.claude/`
+- Generate a settings.json with Linux-appropriate paths (rewrites macOS paths)
+- Remove macOS-only hooks (e.g. sound notifications)
+- List marketplace plugins and offer to install them
+- Prompt you to set environment variables for secrets
 
 ## Selective Restore
 
@@ -74,19 +103,24 @@ git checkout main  # return to latest
 If GitHub is unavailable, restore from the NAS backup:
 
 ```bash
-# Mount the NAS share
-mkdir -p /tmp/claude_nas_mount
-mount_smbfs //nas-service-account@192.168.1.100/automation /tmp/claude_nas_mount
+# Create mount point with full RW permissions
+mkdir -p ~/mounts/claude-restore
+chmod 0777 ~/mounts/claude-restore
+
+# Mount the NAS share (use hostname or IP)
+mount_smbfs -f 0777 -d 0777 //nas-service-account@your-nas-host/your-share ~/mounts/claude-restore
 
 # List available backup dates
-ls /tmp/claude_nas_mount/claude_code_backup/
+ls ~/mounts/claude-restore/claude_code_backup/
 
 # Restore from a specific date
 rsync -av --exclude='.git/' \
-    /tmp/claude_nas_mount/claude_code_backup/2026-03-13/ ~/.claude/
+    ~/mounts/claude-restore/claude_code_backup/2026-03-21/ ~/.claude/
+
+# Re-inject secrets (see Quick Restore step 3 above)
 
 # Unmount
-umount /tmp/claude_nas_mount
+diskutil unmount ~/mounts/claude-restore
 ```
 
 ## Verification
@@ -174,9 +208,12 @@ ls ~/Library/Logs/claude-backup/
 | rsync permission errors | File ownership mismatch | Add `--chmod=u+rw` to rsync |
 | Skills not loading after restore | Claude Code caching | Restart Claude Code |
 | NAS mount "No route to host" but ping works | Password has special characters breaking SMB URL | Script already URL-encodes; verify with `python3 -c "import urllib.parse; ..."` |
-| NAS mount "Permission denied" on mkdir | Mount point under `/Volumes/` (root-owned) | Use `/tmp/` mount point (already configured in `backup.conf`) |
+| NAS mount "No route to host" via IP | Not on LAN / VPN | Use a Tailscale hostname instead of IP in `backup.conf` |
+| NAS mount read-only / write fails | Missing mount mode flags | Use `mount_smbfs -f 0777 -d 0777` and `chmod 0777` on mount point directory |
+| NAS unmount "Resource busy" | `umount` doesn't flush I/O | Use `diskutil unmount` instead (script does this automatically) |
 | NAS mount succeeds but subfolder access denied | Service account lacks ACL on subfolder | Fix NAS share permissions for the service account |
 | NAS mount wrong credentials | Stale Keychain entry | `security add-generic-password -U -s claude-backup-nas -a nas-service-account -w "new-pass"` |
+| Secrets missing after restore | Repo uses placeholders since sanitization | Re-inject via settings.json edit or shell env vars (see Quick Restore step 3) |
 | Schedule change not taking effect | Plist not reloaded | `launchctl unload` then `launchctl load` the plist |
 | Backup tools missing from PATH at 2 AM | LaunchAgent missing PATH env | Check `EnvironmentVariables` in plist includes `/opt/homebrew/bin` |
 | Git checkout shows conflicts | Local changes exist | `git stash` first, then checkout |
